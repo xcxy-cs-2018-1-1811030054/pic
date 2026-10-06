@@ -84,12 +84,35 @@ jobs:
           python -c "import PySide6, cv2, bs4, requests, numpy; print('全部依赖导入成功')"
 
       - name: 打包 exe
+        # 用 PowerShell 数组逐个传参，避免续行符(反引号)与空值拼接的解析问题
+        shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed `
-            --name ${{ matrix.out }} `
-            ${{ matrix.extra_args }} `
-            --hidden-import=PySide6.QtSvg `
-            main.py
+          $argList = @(
+            '--noconfirm', '--clean', '--onefile', '--windowed',
+            '--name', '${{ matrix.out }}',
+            '--hidden-import=PySide6.QtSvg'
+          )
+          $extra = '${{ matrix.extra_args }}'.Trim()
+          if ($extra.Length -gt 0) {
+            $argList += $extra.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
+          }
+          Write-Host "执行: python -m PyInstaller $($argList -join ' ') main.py"
+          python -m PyInstaller @argList main.py
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller 执行失败，退出码 $LASTEXITCODE" }
+
+      - name: 打印构建目录（诊断）
+        if: always()
+        run: |
+          Write-Host "=== 当前目录文件 ==="
+          Get-ChildItem | Select-Object Name, Length | Format-Table -AutoSize
+          if (Test-Path build) {
+            Write-Host "=== build 目录 ==="
+            Get-ChildItem build -Recurse -Depth 1 | Select-Object FullName | Format-Table -AutoSize
+          }
+          if (Test-Path "build/*/warn-*.txt") {
+            Write-Host "=== PyInstaller 警告文件 ==="
+            Get-Content "build/*/warn-*.txt" -TotalCount 50
+          }
 
       - name: 校验产物
         run: |
