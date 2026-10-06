@@ -458,7 +458,7 @@ class MainWindow(QMainWindow):
         self.frame_area = QScrollArea()
         self.frame_area.setWidgetResizable(True)
         self.frame_area.setMinimumHeight(120)
-        self.frame_area.setMaximumHeight(230)
+        self.frame_area.setMaximumHeight(300)
         self.frame_box = QWidget()
         self.frame_layout = QHBoxLayout(self.frame_box)
         self.frame_layout.setContentsMargins(2, 2, 2, 2)
