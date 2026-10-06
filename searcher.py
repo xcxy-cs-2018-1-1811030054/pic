@@ -15,7 +15,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from html import unescape
-from typing import List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import quote, urlparse
 
 import requests
@@ -27,6 +27,27 @@ GOOGLE = "Google"
 YANDEX = "Yandex"
 
 TIMEOUT = 40
+
+# Yandex 地区（settings -> location）。key 为界面显示名，value 为 (lr 地区号, 区域名)。
+# lr 是 Yandex 的地区编号：213 = 莫斯科，84 = 美国，87 = 纽约（州/市）。
+# 留空 key 表示"不指定地区"，即使用 Yandex 自动判断的默认地区。
+YANDEX_LOCATIONS: Dict[str, str] = {
+    "自动（默认）": "",
+    "New York": "84",
+    "United States": "84",
+    "London": "10393",
+    "Moscow": "213",
+    "Beijing": "10645",
+    "Tokyo": "149",
+    "Hong Kong": "10259",
+    "Taiwan": "131",
+    "Singapore": "10247",
+}
+
+DEFAULT_LOCATION = "New York"
+
+# 供 HTTP 请求使用的 Yandex 地区参数（lr）
+YANDEX_LR_NEW_YORK = "84"
 
 
 @dataclass
@@ -158,27 +179,41 @@ def _parse_lens(html: str, frame: int) -> List[SearchResult]:
 # ============================ Yandex ============================
 
 def yandex_search(img_bytes: bytes, proxy: Optional[str] = None,
-                  frame: int = 0, log=print) -> EngineOutcome:
-    """上传图片到 Yandex 图片搜索并解析结果"""
+                  frame: int = 0, log=print,
+                  location: str = DEFAULT_LOCATION) -> EngineOutcome:
+    """上传图片到 Yandex 图片搜索并解析结果
+
+    location: 界面显示的地区名（见 YANDEX_LOCATIONS），会转成 lr 参数发给 Yandex，
+              等价于在 settings 里把 location 设为该地区；传 "自动（默认）" 则不指定。
+    """
     oc = EngineOutcome(engine=YANDEX)
+    lr = YANDEX_LOCATIONS.get(location, "")
+    if lr:
+        log(f"Yandex: 地区 = {location} (lr={lr})")
     try:
         s = _new_session(proxy)
         log("Yandex: 正在上传图片…")
+        home = "https://yandex.ru/images/"
+        if lr:
+            home = f"{home}?lr={lr}"
         try:
             # 先拿 cookie，降低触发风控的概率
-            s.get("https://yandex.ru/images/", timeout=15)
+            s.get(home, timeout=15)
         except Exception:  # noqa: BLE001
             pass
+        post_params = {
+            "from": "tabbar",
+            "rpt": "imageview",
+            "format": "json",
+            "request": '{"blocks":[{"block":"b-page_type_search-by-image__link"}]}',
+        }
+        if lr:
+            post_params["lr"] = lr
         resp = s.post(
             "https://yandex.ru/images/search",
-            params={
-                "from": "tabbar",
-                "rpt": "imageview",
-                "format": "json",
-                "request": '{"blocks":[{"block":"b-page_type_search-by-image__link"}]}',
-            },
+            params=post_params,
             files={"upfile": ("blob", img_bytes, "image/jpeg")},
-            headers={"Referer": "https://yandex.ru/images/",
+            headers={"Referer": home,
                      "Origin": "https://yandex.ru"},
             timeout=TIMEOUT,
         )
@@ -194,6 +229,8 @@ def yandex_search(img_bytes: bytes, proxy: Optional[str] = None,
             return oc
         page = ("https://yandex.ru/images/search?rpt=imageview&cbir_id="
                 + quote(cbir_id, safe=""))
+        if lr:
+            page += "&lr=" + quote(lr, safe="")
         oc.page_url = page
         log("Yandex: 正在抓取结果页…")
         html = s.get(page, timeout=TIMEOUT).text
