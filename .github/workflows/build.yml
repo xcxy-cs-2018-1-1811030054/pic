@@ -20,6 +20,12 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Windows runner 默认 cp1252，强制 UTF-8 避免中文/Unicode 输出报错
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+      PYTHONLEGACYWINDOWSSTDIO: "0"
+
     strategy:
       fail-fast: false
       matrix:
@@ -51,10 +57,10 @@ jobs:
       - name: 检查依赖清单是否存在
         run: |
           if (!(Test-Path "${{ matrix.req }}")) {
-            Write-Host "::error::找不到 ${{ matrix.req }}，请确认该文件已提交到仓库根目录"
-            throw "缺少 ${{ matrix.req }}"
+            Write-Host "::error::Missing ${{ matrix.req }} - please commit it to the repository root"
+            throw "Missing required file: ${{ matrix.req }}"
           }
-          Write-Host "找到 ${{ matrix.req }}"
+          Write-Host "Found ${{ matrix.req }}"
           Get-Content "${{ matrix.req }}"
 
       - name: 安装 Python ${{ matrix.python }}
@@ -75,13 +81,13 @@ jobs:
       - name: 校验关键版本（win7 构建）
         if: matrix.name == 'win7'
         run: |
-          python -c "import sys; v=sys.version_info; assert v[:2]==(3,8), '需 Python 3.8'; print('Python', sys.version)"
-          python -c "import PySide6; v=PySide6.__version__; assert v.startswith('6.1'), 'PySide6 必须是 6.1.x'; print('PySide6', v)"
-          python -c "import PyInstaller; v=PyInstaller.__version__; assert v.startswith('5.'), 'PyInstaller 必须是 5.x'; print('PyInstaller', v)"
+          python -c "import sys; v=sys.version_info; assert v[:2]==(3,8), 'Python 3.8 required'; print('Python', sys.version)"
+          python -c "import PySide6; v=PySide6.__version__; assert v.startswith('6.1'), 'PySide6 6.1.x required'; print('PySide6', v)"
+          python -c "import PyInstaller; v=PyInstaller.__version__; assert v.startswith('5.'), 'PyInstaller 5.x required'; print('PyInstaller', v)"
 
       - name: 校验核心依赖可导入
         run: |
-          python -c "import PySide6, cv2, bs4, requests, numpy; print('全部依赖导入成功')"
+          python -c "import PySide6, cv2, bs4, requests, numpy; print('All core dependencies imported OK')"
 
       - name: 打包 exe
         # 用 PowerShell 数组逐个传参，避免续行符(反引号)与空值拼接的解析问题
@@ -96,30 +102,30 @@ jobs:
           if ($extra.Length -gt 0) {
             $argList += $extra.Split(' ', [System.StringSplitOptions]::RemoveEmptyEntries)
           }
-          Write-Host "执行: python -m PyInstaller $($argList -join ' ') main.py"
+          Write-Host "Running: python -m PyInstaller $($argList -join ' ') main.py"
           python -m PyInstaller @argList main.py
-          if ($LASTEXITCODE -ne 0) { throw "PyInstaller 执行失败，退出码 $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed with exit code $LASTEXITCODE" }
 
       - name: 打印构建目录（诊断）
         if: always()
         run: |
-          Write-Host "=== 当前目录文件 ==="
+          Write-Host "=== Working directory files ==="
           Get-ChildItem | Select-Object Name, Length | Format-Table -AutoSize
           if (Test-Path build) {
-            Write-Host "=== build 目录 ==="
+            Write-Host "=== build directory ==="
             Get-ChildItem build -Recurse -Depth 1 | Select-Object FullName | Format-Table -AutoSize
           }
           if (Test-Path "build/*/warn-*.txt") {
-            Write-Host "=== PyInstaller 警告文件 ==="
+            Write-Host "=== PyInstaller warn file ==="
             Get-Content "build/*/warn-*.txt" -TotalCount 50
           }
 
       - name: 校验产物
         run: |
           $exe = "dist/${{ matrix.out }}.exe"
-          if (!(Test-Path $exe)) { throw "exe 未生成: $exe" }
+          if (!(Test-Path $exe)) { throw "exe was not generated: $exe" }
           $size = (Get-Item $exe).Length / 1MB
-          Write-Host ("{0} 大小: {1:N1} MB" -f $exe, $size)
+          Write-Host ("{0} size: {1:N1} MB" -f $exe, $size)
 
       - name: 上传构建产物（Artifacts）
         uses: actions/upload-artifact@v4
