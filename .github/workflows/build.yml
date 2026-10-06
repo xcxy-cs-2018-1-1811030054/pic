@@ -73,7 +73,24 @@ jobs:
             throw "Non-ASCII content found in ${{ matrix.req }}"
           }
           Write-Host "${{ matrix.req }} is pure ASCII - OK"
-          Get-Content "${{ matrix.req }}"
+          Write-Host "=== RAW CONTENTS OF ${{ matrix.req }} ==="
+          $lines = Get-Content "${{ matrix.req }}"
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            Write-Host ("  line {0}: [{1}]" -f ($i + 1), $lines[$i])
+          }
+          Write-Host "=== END OF FILE ==="
+          # 逐行校验：非空行不许含空格(避免 "# comment" 被剥掉 # 后变成裸文本)
+          $bad = @()
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            $ln = $lines[$i].Trim()
+            if ($ln.Length -eq 0) { continue }
+            if ($ln.Contains(' ')) { $bad += "line $($i+1): '$ln'" }
+          }
+          if ($bad.Count -gt 0) {
+            Write-Host "::error::${{ matrix.req }} has lines with spaces (possible stripped '#' comment): $($bad -join '; ')"
+            throw "Malformed requirements file"
+          }
+          Write-Host "All lines are valid package specs"
 
       - name: 安装 Python ${{ matrix.python }}
         uses: actions/setup-python@v6
