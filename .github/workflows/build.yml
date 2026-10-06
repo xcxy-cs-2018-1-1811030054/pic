@@ -97,20 +97,42 @@ jobs:
         with:
           python-version: "${{ matrix.python }}"
 
-      - name: 降级 pip/setuptools（Py3.8 需要）
+      - name: 准备 pip/setuptools（Py3.8 需要旧版本）
         if: matrix.name == 'win7'
         run: |
-          python -m pip install --upgrade "pip<24.1" "setuptools<60" wheel
+          python -m pip install --upgrade "pip==24.0" "setuptools==59.8.0" wheel
+          if ($LASTEXITCODE -ne 0) { throw "pip/setuptools bootstrap failed" }
+          python -c "import setuptools, pip, distutils; print('setuptools', setuptools.__version__, '| pip', pip.__version__, '| distutils OK')"
 
       - name: 显示环境信息
         run: |
           python -c "import sys, platform; print('Python:', sys.version); print('Bitness:', platform.architecture()[0]); print('Machine:', platform.machine())"
           python -m pip --version
 
-      - name: 安装依赖
+      # 逐行单独安装：任何一行失败都能立刻定位到具体包，
+      # 并把 pip 的完整 stderr 原样打印出来（GitHub 默认只显示摘要）
+      # --upgrade-strategy only-if-needed 防止 pyinstaller 把 setuptools 顶到 75.x
+      - name: 安装依赖（逐行安装 + 完整错误输出）
+        shell: pwsh
         run: |
-          python -m pip install -r ${{ matrix.req }}
-          if ($LASTEXITCODE -ne 0) { throw "pip install failed for ${{ matrix.req }}" }
+          $lines = Get-Content "${{ matrix.req }}" | Where-Object { $_.Trim().Length -gt 0 }
+          $failed = @()
+          foreach ($ln in $lines) {
+            Write-Host ""
+            Write-Host "---------- installing: $ln ----------"
+            $out = python -m pip install --only-binary=:all: --upgrade-strategy only-if-needed "$ln" 2>&1
+            $code = $LASTEXITCODE
+            $out | ForEach-Object { Write-Host $_ }
+            if ($code -ne 0) {
+              Write-Host "::error::Failed to install '$ln' (exit $code)"
+              $failed += "$ln (exit $code)"
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "::error::These packages failed: $($failed -join ' | ')"
+            throw "pip install failed for: $($failed -join ' | ')"
+          }
+          Write-Host "All requirements installed successfully"
 
       - name: 强制确保 PySide6 已安装（防清单解析遗漏）
         run: |
@@ -125,15 +147,16 @@ jobs:
 
       - name: 安装 PyInstaller
         run: |
-          python -m pip install "${{ matrix.pyi }}"
+          python -m pip install --upgrade-strategy only-if-needed "${{ matrix.pyi }}"
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller install failed" }
 
       - name: 列出已安装包（诊断）
         if: always()
+        continue-on-error: true
         run: |
-          python -m pip list
+          python -m pip list 2>&1 | Out-String -Width 200 | Write-Host
           Write-Host "=== Key package check ==="
-          python -m pip show PySide6 shiboken6 numpy opencv-python-headless
+          python -m pip show PySide6 shiboken6 numpy opencv-python-headless 2>&1 | Out-String -Width 200 | Write-Host
 
       - name: 校验关键版本（win7 构建）
         if: matrix.name == 'win7'
