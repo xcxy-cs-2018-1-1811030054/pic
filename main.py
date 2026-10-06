@@ -20,15 +20,15 @@ from PySide6.QtCore import (QObject, QRunnable, QSize, Qt, QThread,
                             QThreadPool, QUrl, Signal)
 from PySide6.QtGui import (QDesktopServices, QImage, QKeySequence, QPixmap,
                            QShortcut)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QFileDialog,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QMainWindow, QMenu, QMessageBox, QPushButton,
                                QScrollArea, QSpinBox, QSplitter, QTabWidget,
                                QTableWidget, QTableWidgetItem, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from searcher import (GOOGLE, YANDEX, UA, aggregate, google_lens_search,
-                      yandex_search)
+from searcher import (DEFAULT_LOCATION, GOOGLE, YANDEX, YANDEX_LOCATIONS, UA,
+                      aggregate, google_lens_search, yandex_search)
 from video_frames import (IMAGE_EXTS, VIDEO_EXTS, extract_keyframes,
                           load_image_as_jpeg, probe_video, to_jpeg_bytes)
 
@@ -75,12 +75,14 @@ class SearchWorker(QThread):
     sig_summary = Signal(list)         # 汇总结果
     sig_done = Signal()
 
-    def __init__(self, jobs, engines, proxy, parent=None):
+    def __init__(self, jobs, engines, proxy, location="New York", parent=None):
         """jobs: [(frame_no, jpeg_bytes), ...]  engines: ["Google","Yandex"]"""
         super().__init__(parent)
         self.jobs = jobs
         self.engines = engines
         self.proxy = proxy
+        self.location = location
+        self._page_urls = {}           # engine -> page_url（搜索完成后可打开）
 
     def run(self):
         all_results = []
@@ -90,12 +92,20 @@ class SearchWorker(QThread):
                 futs = []
                 for frame_no, jpeg in self.jobs:
                     for eng in self.engines:
-                        futs.append(ex.submit(
-                            fn_map[eng], jpeg, self.proxy or None, frame_no,
-                            lambda m: self.sig_status.emit(m)))
+                        fn = fn_map[eng]
+                        if eng == YANDEX:
+                            # 只有 Yandex 需要地区参数
+                            futs.append(ex.submit(
+                                fn, jpeg, self.proxy or None, frame_no,
+                                lambda m: self.sig_status.emit(m), self.location))
+                        else:
+                            futs.append(ex.submit(
+                                fn, jpeg, self.proxy or None, frame_no,
+                                lambda m: self.sig_status.emit(m)))
                 for f in futs:
                     oc = f.result()
                     if oc.page_url:
+                        self._page_urls[oc.engine] = oc.page_url
                         self.sig_page.emit(oc.engine, oc.page_url)
                     if oc.error:
                         self.sig_status.emit(f"[{oc.engine}] {oc.error}")
@@ -473,6 +483,22 @@ class MainWindow(QMainWindow):
         opt.addStretch(1)
         ll.addLayout(opt)
 
+        # Yandex 地区（等价于 Yandex settings 里的 location）
+        loc_row = QHBoxLayout()
+        lbl_loc = QLabel("Yandex 地区:")
+        loc_row.addWidget(lbl_loc)
+        self.cmb_location = QComboBox()
+        self.cmb_location.addItems(list(YANDEX_LOCATIONS.keys()))
+        self.cmb_location.setCurrentText(DEFAULT_LOCATION)
+        self.cmb_location.setToolTip(
+            "Yandex 图片搜索的地区（settings → location），会影响结果排序与排序偏好。\n"
+            "如需美国/纽约结果，保持 New York 即可。")
+        self.cmb_location.setMinimumWidth(140)
+        self.cmb_location.currentTextChanged.connect(self._on_location_changed)
+        loc_row.addWidget(self.cmb_location)
+        loc_row.addStretch(1)
+        ll.addLayout(loc_row)
+
         self.edit_proxy = QLineEdit()
         self.edit_proxy.setPlaceholderText(
             "代理（可选），如 http://127.0.0.1:7890 —— 国内用 Google Lens 必填")
@@ -559,6 +585,17 @@ class MainWindow(QMainWindow):
     # ---------- 工具 ----------
     def _proxy(self):
         return self.edit_proxy.text().strip() or None
+
+    def _location(self):
+        """当前选中的 Yandex 地区名（见 searcher.YANDEX_LOCATIONS）"""
+        return self.cmb_location.currentText() or DEFAULT_LOCATION
+
+    def _on_location_changed(self, name):
+        lr = YANDEX_LOCATIONS.get(name, "")
+        if lr:
+            self.statusBar().showMessage(f"Yandex 地区已设为 {name}（lr={lr}）")
+        else:
+            self.statusBar().showMessage("Yandex 地区：自动（由 Yandex 判断）")
 
     def _open_page(self, engine):
         url = self.page_urls.get(engine)
@@ -713,7 +750,8 @@ class MainWindow(QMainWindow):
         self.clear_results()
         self.btn_search.setEnabled(False)
         self.btn_search.setText("搜索中…")
-        self.worker = SearchWorker(jobs, engines, self._proxy(), self)
+        self.worker = SearchWorker(jobs, engines, self._proxy(),
+                                   self._location(), self)
         self.worker.sig_status.connect(lambda m: self.statusBar().showMessage(m))
         self.worker.sig_item.connect(self._add_detail)
         self.worker.sig_page.connect(self._set_page)
