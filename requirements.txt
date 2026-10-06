@@ -1,8 +1,8 @@
-# ImageHunter 依赖清单
-#
-# ⚠️ Windows 7 用户请看 requirements-win7.txt（必须用 Python 3.8 + 锁定旧版本）
-# 本文件适用于 Windows 10/11，使用最新稳定版。
-
+ImageHunter dependencies - Windows 10/11 (latest stable versions)
+Install: python -m pip install -r requirements.txt
+IMPORTANT: keep this file ASCII-only. pip on Windows runners reads
+requirements files with the system default encoding (cp1252), so any
+non-ASCII comment will be mis-parsed as a package requirement.
 PySide6>=6.5.0
 requests>=2.31.0
 opencv-python-headless>=4.8.0
