@@ -1,0 +1,10 @@
+# ImageHunter 依赖清单
+#
+# ⚠️ Windows 7 用户请看 requirements-win7.txt（必须用 Python 3.8 + 锁定旧版本）
+# 本文件适用于 Windows 10/11，使用最新稳定版。
+
+PySide6>=6.5.0
+requests>=2.31.0
+opencv-python-headless>=4.8.0
+beautifulsoup4>=4.12.0
+PySocks>=1.7.1
