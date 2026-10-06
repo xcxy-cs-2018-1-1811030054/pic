@@ -57,13 +57,22 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 检查依赖清单是否存在
+      - name: 检查依赖清单是否存在且为纯 ASCII
         run: |
           if (!(Test-Path "${{ matrix.req }}")) {
             Write-Host "::error::Missing ${{ matrix.req }} - please commit it to the repository root"
             throw "Missing required file: ${{ matrix.req }}"
           }
           Write-Host "Found ${{ matrix.req }}"
+          # pip 在 Windows runner 上用系统默认编码(cp1252)读取依赖文件，
+          # 非 ASCII 注释会被误解析为包名，导致 "Invalid requirement" 报错
+          $raw = [System.IO.File]::ReadAllBytes("${{ matrix.req }}")
+          $nonAscii = @($raw | Where-Object { $_ -gt 127 })
+          if ($nonAscii.Count -gt 0) {
+            Write-Host "::error::${{ matrix.req }} contains $($nonAscii.Count) non-ASCII bytes - pip will fail to parse it"
+            throw "Non-ASCII content found in ${{ matrix.req }}"
+          }
+          Write-Host "${{ matrix.req }} is pure ASCII - OK"
           Get-Content "${{ matrix.req }}"
 
       - name: 安装 Python ${{ matrix.python }}
@@ -90,11 +99,11 @@ jobs:
         run: |
           python -c "import PySide6" 2>$null
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "PySide6 未安装，单独安装 ${{ matrix.qtver }}"
+            Write-Host "PySide6 missing - installing ${{ matrix.qtver }} separately"
             python -m pip install "PySide6==${{ matrix.qtver }}"
             if ($LASTEXITCODE -ne 0) { throw "PySide6 install failed" }
           } else {
-            Write-Host "PySide6 已就绪"
+            Write-Host "PySide6 already available"
           }
 
       - name: 安装 PyInstaller
@@ -106,7 +115,7 @@ jobs:
         if: always()
         run: |
           python -m pip list
-          Write-Host "=== 关键包检查 ==="
+          Write-Host "=== Key package check ==="
           python -m pip show PySide6 shiboken6 numpy opencv-python-headless
 
       - name: 校验关键版本（win7 构建）
