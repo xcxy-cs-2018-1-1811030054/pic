@@ -30,13 +30,18 @@ jobs:
             req: requirements-win7.txt
             out: ImageHunter-win7
             label: "兼容 Win7/10/11"
-            extra_args: "--noupx --win-private-assemblies"
+            # PyInstaller 5.13.2（最后一个支持 Win7 且行为稳定的 5.x 版本）
+            # 注意：--win-private-assemblies 已在 6.0 移除，Win7 上改用 5.x 即可
+            pyi: "pyinstaller==5.13.2"
+            extra_args: "--noupx"
           # ---------- 现代系统构建 ----------
           - name: win10
             python: "3.11"
             req: requirements.txt
             out: ImageHunter-win10
             label: "Win10/11 (体积更小)"
+            pyi: "pyinstaller"
+            extra_args: ""
 
     name: Build ${{ matrix.name }} (${{ matrix.label }})
     steps:
@@ -65,13 +70,14 @@ jobs:
       - name: 安装依赖
         run: |
           python -m pip install -r ${{ matrix.req }}
-          python -m pip install pyinstaller
+          python -m pip install "${{ matrix.pyi }}"
 
       - name: 校验关键版本（win7 构建）
         if: matrix.name == 'win7'
         run: |
           python -c "import sys; v=sys.version_info; assert v[:2]==(3,8), '需 Python 3.8'; print('Python', sys.version)"
           python -c "import PySide6; v=PySide6.__version__; assert v.startswith('6.1'), 'PySide6 必须是 6.1.x'; print('PySide6', v)"
+          python -c "import PyInstaller; v=PyInstaller.__version__; assert v.startswith('5.'), 'PyInstaller 必须是 5.x'; print('PyInstaller', v)"
 
       - name: 校验核心依赖可导入
         run: |
