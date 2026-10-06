@@ -36,7 +36,9 @@ jobs:
             req: requirements-win7.txt
             out: ImageHunter-win7
             label: "兼容 Win7/10/11"
-            # PyInstaller 5.13.2（最后一个支持 Win7 且行为稳定的 5.x 版本）
+            # PySide6 6.1.3 — 最后一个支持 Win7 的 Qt6 版本（仅 64 位）
+            qtver: "6.1.3"
+            # PyInstaller 5.13.2 — 最后一个支持 Win7 且行为稳定的 5.x 版本
             # 注意：--win-private-assemblies 已在 6.0 移除，Win7 上改用 5.x 即可
             pyi: "pyinstaller==5.13.2"
             extra_args: "--noupx"
@@ -46,6 +48,7 @@ jobs:
             req: requirements.txt
             out: ImageHunter-win10
             label: "Win10/11 (体积更小)"
+            qtver: "6.8.1"
             pyi: "pyinstaller"
             extra_args: ""
 
@@ -71,12 +74,40 @@ jobs:
       - name: 降级 pip/setuptools（Py3.8 需要）
         if: matrix.name == 'win7'
         run: |
-          python -m pip install --upgrade "pip<24.1" setuptools==58.1.0 wheel
+          python -m pip install --upgrade "pip<24.1" "setuptools<60" wheel
+
+      - name: 显示环境信息
+        run: |
+          python -c "import sys, platform; print('Python:', sys.version); print('Bitness:', platform.architecture()[0]); print('Machine:', platform.machine())"
+          python -m pip --version
 
       - name: 安装依赖
         run: |
           python -m pip install -r ${{ matrix.req }}
+          if ($LASTEXITCODE -ne 0) { throw "pip install failed for ${{ matrix.req }}" }
+
+      - name: 强制确保 PySide6 已安装（防清单解析遗漏）
+        run: |
+          python -c "import PySide6" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "PySide6 未安装，单独安装 ${{ matrix.qtver }}"
+            python -m pip install "PySide6==${{ matrix.qtver }}"
+            if ($LASTEXITCODE -ne 0) { throw "PySide6 install failed" }
+          } else {
+            Write-Host "PySide6 已就绪"
+          }
+
+      - name: 安装 PyInstaller
+        run: |
           python -m pip install "${{ matrix.pyi }}"
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller install failed" }
+
+      - name: 列出已安装包（诊断）
+        if: always()
+        run: |
+          python -m pip list
+          Write-Host "=== 关键包检查 ==="
+          python -m pip show PySide6 shiboken6 numpy opencv-python-headless
 
       - name: 校验关键版本（win7 构建）
         if: matrix.name == 'win7'
