@@ -1,16 +1,3 @@
-ImageHunter - Windows 7 dependencies (locked versions, do not upgrade)
-Prerequisite: Python 3.8.10 (64-bit amd64 REQUIRED)
-Install: python -m pip install -r requirements-win7.txt
-Version notes:
-PySide6 6.1.3 - last Qt6 release that works on Windows 7
-(6.2+ removed Win7 support -> "DLL load failed")
-NOTE: only ships a win_amd64 (64-bit) wheel
-PyInstaller 5.13.2 - fixes UPX-related Win7 startup crash
-numpy 1.24.4 / opencv-python-headless 4.8.1.78 - stable builds for Python 3.8
-IMPORTANT: keep this file ASCII-only. Non-ASCII comments break pip on
-Windows runners because pip reads requirements files using the system
-default encoding (cp1252) instead of UTF-8.
-Do NOT pin setuptools here - it interferes with pip build isolation.
 PySide6==6.1.3
 shiboken6==6.1.3
 requests==2.31.0
